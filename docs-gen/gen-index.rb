@@ -10,21 +10,25 @@
 # templates/docs-redirect.html.erb; this script only builds the view model. The
 # getting-started code blocks stay here because they're syntax-highlighted with Rouge.
 #
-#   gen-index.rb <assembly.jsii(.gz)> <out-dir>
+#   gen-index.rb <assembly.jsii(.gz)> <out-dir> [profile.json]
 require 'json'
 require 'zlib'
 require 'set'
 require_relative 'render'
 require_relative 'root_module'
+require_relative 'profile'
 begin
   require 'rouge' # syntax highlighting for the getting-started code blocks
 rescue LoadError
   # fall back to plain (escaped) code if the gem isn't present
 end
 
-assembly_path, out_dir = ARGV
+assembly_path, out_dir, profile_path = ARGV
 raw = File.binread(assembly_path)
 assembly = JSON.parse(raw[0, 2].bytes == [0x1f, 0x8b] ? Zlib.gunzip(raw) : raw)
+# A published assembly carries no Ruby naming — that is what the profile is for.
+# Merged in memory rather than shipped as a modified assembly; see profile.rb.
+DocsProfile.apply!(assembly, DocsProfile.load(profile_path))
 # Root module name is library data (targets.ruby.module), not a constant here.
 root_module = DocsRoot.from_assembly(assembly)
 awscdk = File.join(out_dir, root_module)

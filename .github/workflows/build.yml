@@ -23,6 +23,14 @@ jobs:
         with:
           ruby-version: '3.3'
 
+      - name: Every require_relative resolves
+        # `ruby -c` parses a file without resolving its requires, so it passed
+        # a generator whose dependency was not in this repository at all.
+        run: ruby docs-gen/check-requires.rb
+
+      - name: Unit tests
+        run: ruby test/profile_merge_test.rb
+
       - name: Every generator parses
         run: |
           bad=0
