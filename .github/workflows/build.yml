@@ -1,0 +1,60 @@
+name: build
+
+# The site has no compile step, so this checks the things that would otherwise
+# only fail during a publish: that every generator parses, and that the ERB
+# templates it renders are well-formed. Nothing is published.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: Every generator parses
+        run: |
+          bad=0
+          for f in docs-gen/*.rb; do
+            ruby -c "$f" >/dev/null || { echo "does not parse: $f"; bad=$((bad + 1)); }
+          done
+          echo "$bad generator(s) failed to parse"
+          [ "$bad" -eq 0 ]
+
+      - name: Every shell script parses
+        run: |
+          bad=0
+          for f in docs-gen/*.sh; do
+            bash -n "$f" || { echo "does not parse: $f"; bad=$((bad + 1)); }
+          done
+          [ "$bad" -eq 0 ]
+
+      - name: Every ERB template is well-formed
+        # A broken template fails at render time, which is during a publish —
+        # too late to be a useful place to find out.
+        run: |
+          gem install erubi --no-document >/dev/null 2>&1 || true
+          ruby -rerb -e '
+            bad = 0
+            Dir["docs-gen/templates/*.erb"].each do |f|
+              begin
+                ERB.new(File.read(f), trim_mode: "-").src
+              rescue => e
+                warn "#{f}: #{e.class}: #{e.message}"
+                bad += 1
+              end
+            end
+            warn "#{bad} template(s) failed"
+            exit(bad.zero? ? 0 : 1)
+          '
