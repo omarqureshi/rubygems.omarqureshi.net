@@ -3,7 +3,7 @@
 # (e.g. S3's `encryption_key : KMS::IKey` links to AWSCDK/KMS/IKey.html). YARD only
 # linkifies types present in its registry at render time, so the whole library has to be
 # a single `yard doc` run — per-module builds leave those refs as plain text. Output tree
-# is AWSCDK/<Module>/<Class>.html (+ shared css/js). Built with the gem lib as CWD so
+# is <RootModule>/<Module>/<Class>.html (+ shared css/js). Built with the gem lib as CWD so
 # "Defined in" paths render clean ("dynamo_db/table.rb"). Finally the theme is applied.
 #
 # Set PER_MODULE=1 to fall back to isolated per-module builds: crash-safe (each module in
@@ -32,7 +32,10 @@ MARKUP=(--markup markdown --markup-provider redcarpet)
 
 modules=("$@")
 [ ${#modules[@]} -eq 0 ] && modules=($(ls "$GEM_LIB"))
-mkdir -p "$OUT/AWSCDK"
+# No `mkdir` for the root module: YARD creates the directories from the module
+# names in the source it is given, and pre-creating one named for a particular
+# library left an empty AWSCDK/ beside every other library's real tree — enough
+# to make the root ambiguous for every script that detects it from the tree.
 cd "$GEM_LIB"
 
 # Keep only real module dirs (relative names, so "Defined in" paths stay clean).
@@ -40,7 +43,17 @@ mods=()
 for mod in "${modules[@]}"; do
   [ -d "$GEM_LIB/$mod" ] && mods+=("$mod") || echo "skip $mod (no dir)"
 done
-[ ${#mods[@]} -eq 0 ] && { echo "no modules to build"; exit 0; }
+
+# A library with no submodules is flat: every type sits at the root and there
+# are no per-module directories at all (cdk8s is like this; aws-cdk-lib, with
+# its ~340 submodules, is not). That is a shape to build, not an empty build —
+# the root files below are the whole library.
+if [ ${#mods[@]} -eq 0 ]; then
+  if [ -z "$(find "$GEM_LIB" -maxdepth 1 -name '*.rb' -print -quit)" ]; then
+    echo "no modules and no root types to build"; exit 0
+  fi
+  echo "flat library: no submodules, building its root types"
+fi
 
 if [ "${PER_MODULE:-0}" = 1 ]; then
   # Fallback: isolated per-module builds. Crash-safe, but cross-module links stay plain.
@@ -66,10 +79,10 @@ else
   # unlinked (they're referenced everywhere). Skip the root _readme.rb (the package
   # README; the site's own landing is the intro).
   mapfile -t rootfiles < <(find . -maxdepth 1 -name '*.rb' ! -name '_readme.rb')
-  total=$(find "${mods[@]}" -name '*.rb' | wc -l)
+  total=$([ ${#mods[@]} -eq 0 ] && echo 0 || find "${mods[@]}" -name '*.rb' | wc -l)
   printf 'yard (unified) %s modules + %s root types, %s files -> one registry\n' \
     "${#mods[@]}" "${#rootfiles[@]}" "$((total + ${#rootfiles[@]}))"
-  yard doc "${mods[@]}" "${rootfiles[@]}" -o "$OUT" --no-cache --no-progress -q "${MARKUP[@]}"
+  yard doc ${mods[@]+"${mods[@]}"} "${rootfiles[@]}" -o "$OUT" --no-cache --no-progress -q "${MARKUP[@]}"
 fi
 
 # Apply the theme: YARD loads common.css last, so this overrides style.css site-wide.

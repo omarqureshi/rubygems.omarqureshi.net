@@ -1,9 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 #
-# Assembly-driven root index -> <out>/AWSCDK/index.html
+# Assembly-driven root index -> <out>/<RootModule>/index.html
 # Walks the jsii assembly's submodules for authoritative Ruby module names; links the
-# modules whose docs are built under <out>/AWSCDK/<Module>/. Prepends a hand-written
+# modules whose docs are built under <out>/<RootModule>/<Module>/. Prepends a hand-written
 # "Getting started" section (install, a first stack, deploy, naming rules).
 #
 # Markup lives in templates/docs-index.html.erb (page + getting-started prose) and
@@ -198,4 +198,4 @@ File.write(File.join(awscdk, 'index.html'), Render.page('docs-index',
 # Redirect the site root to the API index (overwrites YARD's leftover root index.html).
 File.write(File.join(out_dir, 'index.html'), Render.page('docs-redirect'))
 
-puts "AWSCDK/index.html: #{modules.length} modules (#{built.size} linked) + getting-started; root -> redirect"
+puts "#{root_module}/index.html: #{modules.length} modules (#{built.size} linked) + getting-started; root -> redirect"
