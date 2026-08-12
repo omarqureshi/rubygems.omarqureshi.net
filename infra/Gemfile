@@ -1,0 +1,19 @@
+# frozen_string_literal: true
+
+source 'https://rubygems.org'
+
+# The gems this stack is built with come from the feed this stack provisions.
+# That circularity is deliberate and only bites in one situation: if the feed is
+# broken, temporarily point this at another source to deploy the fix. Pinned
+# exactly, because infrastructure should redeploy identically until someone
+# decides otherwise.
+source 'https://rubygems.omarqureshi.net' do
+  gem 'aws-cdk-asset-awscli-v1', '2.2.282', require: false
+  gem 'aws-cdk-asset-node-proxy-agent-v6', '2.1.2', require: false
+  gem 'aws-cdk-cloud-assembly-schema', '54.17.0', require: false
+  gem 'aws-cdk-lib', '2.263.0', require: false
+  gem 'constructs', '10.8.1', require: false
+  gem 'jsii-ruby-runtime', '0.1.0'
+end
+
+gem 'rubocop', require: false

@@ -29,7 +29,8 @@ jobs:
         run: ruby docs-gen/check-requires.rb
 
       - name: Unit tests
-        run: ruby test/profile_merge_test.rb
+        run: |
+          for t in test/*_test.rb; do ruby "$t"; done
 
       - name: Every generator parses
         run: |

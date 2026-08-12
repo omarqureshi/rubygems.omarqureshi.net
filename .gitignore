@@ -1,2 +1,5 @@
 node_modules/
 dist/
+infra/cdk.out/
+infra/node_modules/
+infra/.bundle/
