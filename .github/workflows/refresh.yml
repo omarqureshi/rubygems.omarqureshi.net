@@ -1,0 +1,133 @@
+name: refresh
+
+# Recomputes everything shared: the documentation aliases, the gem index, and
+# the CloudFront cache.
+#
+# These are the objects several publishers would otherwise fight over. Each
+# publisher writes only its own versioned prefix and then says it published
+# something; this repository — which owns the shared paths — works out what
+# that means. The alternative, publishers updating shared state directly, is a
+# read-modify-write race and cannot be made safe by ordering alone.
+
+on:
+  repository_dispatch:
+    types: [docs-published, gems-published]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: write the changes (otherwise this only reports what it would do)
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  # Shared state has one writer at a time. Unlike a publisher's own prefix,
+  # these objects genuinely cannot be written concurrently.
+  group: shared-state
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      BUCKET: aws-cdk-ruby-gems
+      # A dispatch is a publish that already happened, so it applies. A manual
+      # run is a dry run unless asked otherwise.
+      APPLY: ${{ github.event_name == 'repository_dispatch' || inputs.apply }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: What triggered this
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "${{ github.event.action }}: ${{ github.event.client_payload.library }} ${{ github.event.client_payload.version }}"
+          else
+            echo "manual run (apply=${{ inputs.apply }})"
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsCDKRole
+          aws-region: us-east-1
+
+      - name: Point each bare documentation URL at the right version
+        run: |
+          if [ "$APPLY" = "true" ]; then
+            ruby docs-gen/update-aliases.rb "$BUCKET"
+          else
+            ruby docs-gen/update-aliases.rb "$BUCKET" --dry-run
+          fi
+
+      - name: Rebuild the gem index
+        if: github.event.action == 'gems-published' || github.event_name == 'workflow_dispatch'
+        run: |
+          # The index describes the whole feed, so it is rebuilt from what the
+          # bucket actually holds rather than from what any one publisher
+          # believes it added. Publishers only ever add .gem files.
+          repo="${RUNNER_TEMP}/feed"
+          mkdir -p "$repo/gems"
+          aws s3 sync "s3://$BUCKET/gems/" "$repo/gems/" --no-progress
+          echo "gems in the feed: $(ls "$repo/gems" | wc -l)"
+          gem install rubygems-generate_index --no-document >/dev/null
+          ( cd "$repo" && gem generate_index --directory . )
+
+          ruby -rzlib -rstringio -e '
+            repo = ENV.fetch("REPO")
+            on_disk = Dir.glob(File.join(repo, "gems", "*.gem"))
+                         .map { |f| File.basename(f, ".gem") }.sort
+            indexed = %w[specs.4.8.gz prerelease_specs.4.8.gz].flat_map { |f|
+              path = File.join(repo, f)
+              next [] unless File.exist?(path)
+              Marshal.load(Zlib::GzipReader.new(StringIO.new(File.binread(path))).read)
+            }.map { |n, v, _| "#{n}-#{v}" }.sort
+            missing = on_disk - indexed
+            abort("::error::in the bucket but absent from the index: #{missing.join(", ")}") unless missing.empty?
+            extra = indexed - on_disk
+            abort("::error::indexed but not in the bucket: #{extra.join(", ")}") unless extra.empty?
+            puts "index reconciles with the bucket: #{on_disk.size} gems"
+          '
+        env:
+          REPO: ${{ runner.temp }}/feed
+
+      - name: Upload the rebuilt index
+        if: (github.event.action == 'gems-published' || github.event_name == 'workflow_dispatch') && (github.event_name == 'repository_dispatch' || inputs.apply)
+        run: |
+          repo="${RUNNER_TEMP}/feed"
+          for f in specs.4.8 specs.4.8.gz latest_specs.4.8 latest_specs.4.8.gz \
+                   prerelease_specs.4.8 prerelease_specs.4.8.gz names versions; do
+            [ -f "$repo/$f" ] && aws s3 cp "$repo/$f" "s3://$BUCKET/$f" --no-progress >/dev/null
+          done
+          # quick/ and info/ are wholly derived from the gems, so --delete is
+          # correct here and nowhere else: it is how a gem removed from the
+          # feed stops being advertised.
+          aws s3 sync "$repo/quick/" "s3://$BUCKET/quick/" --delete --no-progress
+          aws s3 sync "$repo/info/" "s3://$BUCKET/info/" --delete --no-progress
+          echo "index uploaded"
+
+      - name: Invalidate the caches that changed
+        if: github.event_name == 'repository_dispatch' || inputs.apply
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(Aliases.Items || \`[]\`, 'rubygems.omarqureshi.net')].Id | [0]" \
+            --output text)
+          if [ "$DIST_ID" = "None" ] || [ -z "$DIST_ID" ]; then
+            echo "no distribution for rubygems.omarqureshi.net; nothing to invalidate"
+            exit 0
+          fi
+          # Only the mutable paths. A version prefix is immutable, so it is
+          # never invalidated — which is most of the traffic, and most of what
+          # a blanket /docs/* invalidation would have thrown away.
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" \
+            --paths '/docs/*/index.html' '/docs/*/*/index.html' \
+                    '/specs*' '/latest_specs*' '/prerelease_specs*' '/names' '/versions' \
+                    '/info/*' '/quick/*' >/dev/null
+          echo "invalidated the mutable paths on $DIST_ID"

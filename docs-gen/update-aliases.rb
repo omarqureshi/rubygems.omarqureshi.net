@@ -49,7 +49,11 @@ libraries.each do |library|
   versions = prefixes(bucket, "docs/#{library}/")
   newest = DocsAliases.newest(versions)
   if newest.nil?
-    warn "  #{library}: no versioned directories, skipping"
+    # Not every prefix under docs/ is a library. YARD's shared assets (css/,
+    # js/) sit alongside, and the pre-versioning layout left a flat tree of
+    # module directories. A prefix with no version-shaped child is simply not
+    # something to alias.
+    puts "  #{library}: not a versioned library, skipping"
     next
   end
 
