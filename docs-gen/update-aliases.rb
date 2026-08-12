@@ -66,6 +66,20 @@ libraries.each do |library|
     # back out to the library root before descending into the version.
     relative = suffix.empty? ? version : "../#{version}"
     body = DocsAliases.redirect_to(relative)
+
+    # Already correct? Then leave it alone. This runs on a timer, and rewriting
+    # an identical object every time would re-PUT it and, worse, make every run
+    # look like a change — which is what decides whether the CloudFront cache is
+    # invalidated. Doing nothing has to be observable as nothing.
+    current = begin
+      out, _, status = Open3.capture3('aws', 's3', 'cp', "s3://#{bucket}/#{key}", '-')
+      status.success? ? out : nil
+    end
+    if current == body
+      puts "  #{key} -> #{version} (unchanged)"
+      next
+    end
+
     if dry_run
       puts "  would write #{key} -> #{version}"
     else
@@ -82,3 +96,9 @@ libraries.each do |library|
 end
 
 puts "#{dry_run ? 'would write' : 'wrote'} #{wrote} alias(es) across #{libraries.size} librar#{libraries.size == 1 ? 'y' : 'ies'}"
+
+# Tell the caller whether anything actually changed, so it can skip a cache
+# invalidation nobody needs.
+if ENV['GITHUB_ENV']
+  File.write(ENV['GITHUB_ENV'], "ALIASES_CHANGED=#{wrote.positive?}\n", mode: 'a')
+end

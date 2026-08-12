@@ -12,6 +12,16 @@ name: refresh
 on:
   repository_dispatch:
     types: [docs-published, gems-published]
+  schedule:
+    # A publisher cannot reliably reach this workflow: a cross-repository
+    # dispatch needs a token with access here, and the default GITHUB_TOKEN is
+    # scoped to the repository it runs in. Rather than require a PAT before
+    # anything can be published, this also runs on a timer.
+    #
+    # Unattended, but not a publish: it only recomputes state derived from what
+    # is already in the bucket, and doing so twice is the same as doing it once.
+    # Nothing here can invent a version or ship a gem.
+    - cron: '*/20 * * * *'
   workflow_dispatch:
     inputs:
       apply:
@@ -37,7 +47,7 @@ jobs:
       BUCKET: aws-cdk-ruby-gems
       # A dispatch is a publish that already happened, so it applies. A manual
       # run is a dry run unless asked otherwise.
-      APPLY: ${{ github.event_name == 'repository_dispatch' || inputs.apply }}
+      APPLY: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,8 +77,31 @@ jobs:
             ruby docs-gen/update-aliases.rb "$BUCKET" --dry-run
           fi
 
+      - name: Is the index already current?
+        if: github.event.action != 'docs-published'
+        run: |
+          # Cheap check before the expensive work. This runs on a timer, and
+          # almost every run has nothing to do: downloading every gem to rebuild
+          # an identical index — and then invalidating a cache nobody needed
+          # invalidated — would be pure waste, and would grow with the feed.
+          #
+          # Compares what the bucket holds against what the live index
+          # advertises. Names only, which is all the index is keyed by.
+          aws s3 ls "s3://$BUCKET/gems/" | awk '{print $4}' | sed 's/\.gem$//' | sort > /tmp/in-bucket
+          curl -fsS "https://rubygems.omarqureshi.net/versions" 2>/dev/null \
+            | tail -n +3 | awk '{n=$1; split($2,vs,","); for (i in vs) print n "-" vs[i]}' \
+            | sed 's/-[0-9a-f]\{8,\}$//' | sort -u > /tmp/advertised || true
+          if diff -q /tmp/in-bucket /tmp/advertised >/dev/null 2>&1; then
+            echo "index is current ($(wc -l < /tmp/in-bucket) gems); nothing to rebuild"
+            echo "INDEX_STALE=false" >> "$GITHUB_ENV"
+          else
+            echo "index differs from the bucket:"
+            diff /tmp/advertised /tmp/in-bucket | head -10 || true
+            echo "INDEX_STALE=true" >> "$GITHUB_ENV"
+          fi
+
       - name: Rebuild the gem index
-        if: github.event.action == 'gems-published' || github.event_name == 'workflow_dispatch'
+        if: github.event.action != 'docs-published' && env.INDEX_STALE == 'true'
         run: |
           # The index describes the whole feed, so it is rebuilt from what the
           # bucket actually holds rather than from what any one publisher
@@ -99,7 +132,7 @@ jobs:
           REPO: ${{ runner.temp }}/feed
 
       - name: Upload the rebuilt index
-        if: (github.event.action == 'gems-published' || github.event_name == 'workflow_dispatch') && (github.event_name == 'repository_dispatch' || inputs.apply)
+        if: github.event.action != 'docs-published' && env.INDEX_STALE == 'true' && (github.event_name != 'workflow_dispatch' || inputs.apply)
         run: |
           repo="${RUNNER_TEMP}/feed"
           for f in specs.4.8 specs.4.8.gz latest_specs.4.8 latest_specs.4.8.gz \
@@ -114,7 +147,9 @@ jobs:
           echo "index uploaded"
 
       - name: Invalidate the caches that changed
-        if: github.event_name == 'repository_dispatch' || inputs.apply
+        # Only when something did change. An invalidation per timer tick would
+        # cost money and throw away a warm cache for no reason.
+        if: (env.INDEX_STALE == 'true' || env.ALIASES_CHANGED == 'true') && (github.event_name != 'workflow_dispatch' || inputs.apply)
         run: |
           DIST_ID=$(aws cloudfront list-distributions \
             --query "DistributionList.Items[?contains(Aliases.Items || \`[]\`, 'rubygems.omarqureshi.net')].Id | [0]" \
