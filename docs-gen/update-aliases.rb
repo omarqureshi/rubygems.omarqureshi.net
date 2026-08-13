@@ -22,7 +22,9 @@
 require 'json'
 require 'open3'
 require 'tmpdir'
+require 'tempfile'
 require_relative 'aliases'
+require_relative 'docs_landing'
 
 bucket = ARGV[0] or abort 'usage: update-aliases.rb <bucket> [--dry-run]'
 dry_run = ARGV.include?('--dry-run')
@@ -45,6 +47,7 @@ libraries = prefixes(bucket, 'docs/')
 abort 'no libraries published under docs/' if libraries.empty?
 
 wrote = 0
+current = {}
 libraries.each do |library|
   versions = prefixes(bucket, "docs/#{library}/")
   newest = DocsAliases.newest(versions)
@@ -57,6 +60,7 @@ libraries.each do |library|
     next
   end
 
+  current[library] = newest
   targets = { '' => newest }
   DocsAliases.per_minor(versions).each { |minor, patch| targets["#{minor}/"] = patch }
 
@@ -92,6 +96,35 @@ libraries.each do |library|
       puts "  #{key} -> #{version}"
     end
     wrote += 1
+  end
+end
+
+# The page at /docs, listing what is published. Written here because this is
+# where the answer already is: the same walk that decides each library's alias
+# knows every library and its current version. A separate pass would be a second
+# source of truth for the same question.
+landing = DocsLanding.render(current)
+landing_key = 'docs/index.html'
+if current.empty?
+  puts '  no versioned libraries; leaving docs/index.html alone'
+elsif dry_run
+  puts "  would write #{landing_key} listing #{current.size} librar#{current.size == 1 ? 'y' : 'ies'}"
+else
+  existing = begin
+    out, _, status = Open3.capture3('aws', 's3', 'cp', "s3://#{bucket}/#{landing_key}", '-')
+    status.success? ? out : nil
+  end
+  if existing == landing
+    puts "  #{landing_key} (unchanged)"
+  else
+    Tempfile.create(['docs-landing', '.html']) do |f|
+      f.write(landing)
+      f.flush
+      s3('s3', 'cp', f.path, "s3://#{bucket}/#{landing_key}",
+         '--content-type', 'text/html', '--cache-control', 'public, max-age=300')
+    end
+    wrote += 1
+    puts "  #{landing_key}: #{current.keys.sort.join(', ')}"
   end
 end
 

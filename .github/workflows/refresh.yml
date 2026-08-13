@@ -147,9 +147,13 @@ jobs:
           echo "index uploaded"
 
       - name: Invalidate the caches that changed
-        # Only when something did change. An invalidation per timer tick would
-        # cost money and throw away a warm cache for no reason.
-        if: (env.INDEX_STALE == 'true' || env.ALIASES_CHANGED == 'true') && (github.event_name != 'workflow_dispatch' || inputs.apply)
+        # Only what changed. A blanket /docs/* would throw away a warm cache for
+        # thousands of immutable pages, and this also runs on a timer where the
+        # usual answer is "nothing".
+        if: github.event_name != 'workflow_dispatch' || inputs.apply
+        env:
+          LIBRARY: ${{ github.event.client_payload.library }}
+          PUBLISHED_VERSION: ${{ github.event.client_payload.version }}
         run: |
           DIST_ID=$(aws cloudfront list-distributions \
             --query "DistributionList.Items[?contains(Aliases.Items || \`[]\`, 'rubygems.omarqureshi.net')].Id | [0]" \
@@ -158,11 +162,33 @@ jobs:
             echo "no distribution for rubygems.omarqureshi.net; nothing to invalidate"
             exit 0
           fi
-          # Only the mutable paths. A version prefix is immutable, so it is
-          # never invalidated — which is most of the traffic, and most of what
-          # a blanket /docs/* invalidation would have thrown away.
+
+          paths=()
+
+          # Shared, mutable, and only worth invalidating when they moved.
+          if [ "$INDEX_STALE" = "true" ] || [ "$ALIASES_CHANGED" = "true" ]; then
+            paths+=('/docs/*/index.html' '/docs/*/*/index.html'
+                    '/specs*' '/latest_specs*' '/prerelease_specs*' '/names' '/versions'
+                    '/info/*' '/quick/*')
+          fi
+
+          # A version prefix is immutable in normal operation, so it is never
+          # invalidated on a timer. But a publisher that names a library and
+          # version has just written there — which happens when a release is
+          # deliberately rebuilt to fix a bug in the pages themselves. Skipping
+          # it then serves the broken pages until the cache expires: exactly what
+          # happened to /docs/Constructs/10.8.1/, which kept sending readers to
+          # an AWSCDK directory for an hour after the fix was published.
+          if [ -n "$LIBRARY" ] && [ -n "$PUBLISHED_VERSION" ]; then
+            paths+=("/docs/${LIBRARY}/${PUBLISHED_VERSION}/*")
+            echo "a publisher wrote to docs/${LIBRARY}/${PUBLISHED_VERSION}/"
+          fi
+
+          if [ ${#paths[@]} -eq 0 ]; then
+            echo "nothing changed; leaving the cache alone"
+            exit 0
+          fi
           aws cloudfront create-invalidation --distribution-id "$DIST_ID" \
-            --paths '/docs/*/index.html' '/docs/*/*/index.html' \
-                    '/specs*' '/latest_specs*' '/prerelease_specs*' '/names' '/versions' \
-                    '/info/*' '/quick/*' >/dev/null
-          echo "invalidated the mutable paths on $DIST_ID"
+            --paths "${paths[@]}" >/dev/null
+          printf '  %s\n' "${paths[@]}"
+          echo "invalidated ${#paths[@]} path pattern(s) on $DIST_ID"

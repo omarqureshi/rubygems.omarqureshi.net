@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Reference — Ruby</title>
+<link rel="stylesheet" href="//rubygems.omarqureshi.net/styles/theme.css">
+<link rel="stylesheet" href="//rubygems.omarqureshi.net/styles/docs-index.css">
+</head><body><div class="wrap">
+  <nav class="cdk-crumb"><span class="cur">API Reference</span></nav>
+  <h1>API Reference for <span class="r">Ruby</span></h1>
+  <p class="sub">Generated from the same jsii assemblies the TypeScript, Python, Java, C# and Go bindings are generated from.</p>
+
+  <div class="mod-grid">
+<% libraries.each do |lib| -%>
+    <a class="mod" href="<%= h.call(lib[:name]) %>/">
+      <span class="mod-name"><%= h.call(lib[:name]) %></span>
+      <span class="mod-meta"><%= h.call(lib[:version]) %></span>
+<% if lib[:blurb] -%>
+      <span class="mod-blurb"><%= h.call(lib[:blurb]) %></span>
+<% end -%>
+    </a>
+<% end -%>
+  </div>
+
+  <p class="sub">Each link goes to the current version. Every release keeps its
+  own permanent URL — <code>/docs/&lt;Library&gt;/&lt;version&gt;/</code> — so a
+  page you link to today keeps saying what it said today.</p>
+</div></body></html>
