@@ -26,13 +26,24 @@ class DocsLinksTest < Minitest::Test
   end
 
   def test_does_not_link_a_gem_whose_docs_are_not_published_yet
-    # cdk8s has a documentation workflow but has not published; linking to it
-    # would send readers to a 403.
     assert_nil DocsLinks.for('cdk8s', documented)
   end
 
   def test_links_cdk8s_once_its_docs_exist
     assert_equal '/docs/CDK8s/', DocsLinks.for('cdk8s', documented + ['CDK8s'])
+  end
+
+  def test_does_not_send_cdk8s_plus_to_the_cdk8s_reference
+    # The CDK8s tree documents cdk8s alone — CDK8sPlus27/Deployment.html is a
+    # 403. Pointing a cdk8s-plus gem at it is worse than not linking: the
+    # reader arrives at a reference that looks right and lacks every type they
+    # came for.
+    assert_nil DocsLinks.for('cdk8s-plus-27', documented + ['CDK8s'])
+  end
+
+  def test_links_cdk8s_plus_to_its_own_tree_once_that_exists
+    assert_equal '/docs/CDK8sPlus27/',
+                 DocsLinks.for('cdk8s-plus-27', documented + %w[CDK8s CDK8sPlus27])
   end
 
   def test_does_not_guess_for_a_gem_it_does_not_know

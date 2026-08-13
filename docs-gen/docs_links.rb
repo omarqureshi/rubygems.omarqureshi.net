@@ -16,7 +16,12 @@ module DocsLinks
   MODULES = {
     'aws-cdk-lib' => 'AWSCDK',
     'cdk8s' => 'CDK8s',
-    'cdk8s-plus-27' => 'CDK8s',
+    # Each cdk8s-plus targets a different Kubernetes version and gets its own
+    # module, so its own documentation tree. They are listed rather than mapped
+    # onto CDK8s: that tree documents cdk8s alone, and pointing them at it
+    # sends a reader to a reference that looks right and contains none of the
+    # types they came for.
+    **(25..32).to_h { |n| ["cdk8s-plus-#{n}", "CDK8sPlus#{n}"] },
     'constructs' => 'Constructs',
     'jsii-ruby-runtime' => 'Jsii',
   }.freeze
