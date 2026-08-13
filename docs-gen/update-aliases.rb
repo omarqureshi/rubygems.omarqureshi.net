@@ -47,7 +47,7 @@ libraries = prefixes(bucket, 'docs/')
 abort 'no libraries published under docs/' if libraries.empty?
 
 wrote = 0
-current = {}
+newest_by_library = {}
 libraries.each do |library|
   versions = prefixes(bucket, "docs/#{library}/")
   newest = DocsAliases.newest(versions)
@@ -60,7 +60,7 @@ libraries.each do |library|
     next
   end
 
-  current[library] = newest
+  newest_by_library[library] = newest
   targets = { '' => newest }
   DocsAliases.per_minor(versions).each { |minor, patch| targets["#{minor}/"] = patch }
 
@@ -75,11 +75,11 @@ libraries.each do |library|
     # an identical object every time would re-PUT it and, worse, make every run
     # look like a change — which is what decides whether the CloudFront cache is
     # invalidated. Doing nothing has to be observable as nothing.
-    current = begin
+    published = begin
       out, _, status = Open3.capture3('aws', 's3', 'cp', "s3://#{bucket}/#{key}", '-')
       status.success? ? out : nil
     end
-    if current == body
+    if published == body
       puts "  #{key} -> #{version} (unchanged)"
       next
     end
@@ -103,12 +103,12 @@ end
 # where the answer already is: the same walk that decides each library's alias
 # knows every library and its current version. A separate pass would be a second
 # source of truth for the same question.
-landing = DocsLanding.render(current)
+landing = DocsLanding.render(newest_by_library)
 landing_key = 'docs/index.html'
-if current.empty?
+if newest_by_library.empty?
   puts '  no versioned libraries; leaving docs/index.html alone'
 elsif dry_run
-  puts "  would write #{landing_key} listing #{current.size} librar#{current.size == 1 ? 'y' : 'ies'}"
+  puts "  would write #{landing_key} listing #{newest_by_library.size} librar#{newest_by_library.size == 1 ? 'y' : 'ies'}"
 else
   existing = begin
     out, _, status = Open3.capture3('aws', 's3', 'cp', "s3://#{bucket}/#{landing_key}", '-')
@@ -124,7 +124,7 @@ else
          '--content-type', 'text/html', '--cache-control', 'public, max-age=300')
     end
     wrote += 1
-    puts "  #{landing_key}: #{current.keys.sort.join(', ')}"
+    puts "  #{landing_key}: #{newest_by_library.keys.sort.join(', ')}"
   end
 end
 
