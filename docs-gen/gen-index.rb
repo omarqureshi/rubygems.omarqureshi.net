@@ -196,6 +196,12 @@ File.write(File.join(awscdk, 'index.html'), Render.page('docs-index',
 # linked protocol-relative — not copied next to the page.
 
 # Redirect the site root to the API index (overwrites YARD's leftover root index.html).
-File.write(File.join(out_dir, 'index.html'), Render.page('docs-redirect'))
+# The module named here is the one in *this* tree. It was hardcoded to AWSCDK,
+# which went unnoticed while aws-cdk-lib was the only library published: the
+# moment constructs was, /docs/Constructs/ sent readers to
+# /docs/Constructs/<version>/AWSCDK/index.html, which does not exist.
+File.write(File.join(out_dir, 'index.html'), Render.page('docs-redirect',
+  root_module: root_module,
+  title: assembly['description'] || assembly['name']))
 
 puts "#{root_module}/index.html: #{modules.length} modules (#{built.size} linked) + getting-started; root -> redirect"
