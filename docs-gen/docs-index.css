@@ -28,3 +28,15 @@ a.m.live:hover { color: var(--accent); }
 
 .cdk-crumb { margin: 0 0 1rem; font: 600 .85rem system-ui, -apple-system, sans-serif; }
 .cdk-crumb .cur { color: var(--muted); font-weight: 400; font-family: ui-monospace, monospace; }
+
+/* The library list at /docs. A real list rather than a column grid: there are a
+   handful of libraries, each wanting a version and a sentence, which is a very
+   different shape from the hundreds of bare module names the .cols grid is for. */
+.lib-list { list-style: none; padding: 0; margin: 1rem 0 2rem; }
+.lib-list li { padding: .9rem 0; border-bottom: 1px solid var(--rule, rgba(128,128,128,.2)); }
+.lib-list li:last-child { border-bottom: 0; }
+.lib-list a { font-family: ui-monospace, monospace; font-size: 1rem; font-weight: 600; color: var(--ink); text-decoration: none; }
+.lib-list a:hover { color: var(--accent); }
+.lib-list .ver { margin-left: .5rem; font-family: ui-monospace, monospace; font-size: .8rem; color: var(--muted); }
+.lib-list p { margin: .25rem 0 0; color: var(--muted); font-size: .9rem; }
+.foot-note { color: var(--muted); font-size: .85rem; margin-top: 2rem; }

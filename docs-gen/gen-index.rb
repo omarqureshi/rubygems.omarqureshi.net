@@ -129,67 +129,30 @@ end
 # no version incantation, and the lockfile pins reproducibility. Everything
 # else (constructs, the asset packages, the jsii runtime) arrives as an
 # exact-pinned transitive dependency of the one gem.
-gemfile = <<~RUBY
-  source 'https://rubygems.org'
+# Prose about a library — how you install it, what its naming conventions are —
+# is library data, the same as its naming, and comes from the profile. It was
+# hardcoded to aws-cdk-lib, so publishing constructs produced a page announcing
+# "AWS CDK for Ruby" and telling readers to write a cdk.json.
+#
+# A library that supplies none simply gets a page without those sections, which
+# is better than a page describing a different library.
+docs = (DocsProfile.load(profile_path)[assembly['name']] || {})['docs'] || {}
 
-  # The Ruby CDK preview — everything it needs comes with it.
-  gem 'aws-cdk-lib', source: 'https://rubygems.omarqureshi.net'
-RUBY
-
-stack = <<~RUBY
-  # stacks/my_stack.rb
-  require 'aws-cdk-lib'
-
-  class MyStack < AWSCDK::Stack
-    def initialize(scope, id, props = nil)
-      super(scope, id, props)
-
-      AWSCDK::S3::Bucket.new(
-        self,
-        'MyBucket',
-        {
-          versioned: true,
-          removal_policy: AWSCDK::RemovalPolicy::DESTROY,
-          auto_delete_objects: true
-        }
-      )
-    end
-  end
-RUBY
-
-app = <<~RUBY
-  # app.rb
-  require 'aws-cdk-lib'
-  require_relative 'stacks/my_stack'
-
-  app = AWSCDK::App.new
-
-  MyStack.new(app, 'MyStack', {
-    env: AWSCDK::Environment.new(
-      account: ENV['CDK_DEFAULT_ACCOUNT'],
-      region: ENV.fetch('CDK_DEFAULT_REGION', 'us-east-1')
-    )
-  })
-
-  app.synth
-RUBY
-
-deploy = <<~SH
-  $ bundle install
-  $ npm install -g aws-cdk @jsii/runtime
-  $ cdk deploy
-SH
+getting_started = docs['getting_started']&.to_h do |heading, snippet|
+  [heading, code.call(snippet['code'], snippet['lang'] || 'ruby')]
+end
 
 Dir.mkdir(awscdk) unless File.directory?(awscdk)
 File.write(File.join(awscdk, 'index.html'), Render.page('docs-index',
+  root_module: root_module,
+  title: docs['title'] || assembly['name'],
+  tagline: docs['tagline'] || assembly['description'],
+  intro_html: docs['intro_html'],
+  getting_started: getting_started,
+  conventions: docs['conventions'] || [],
   modules: module_view,
   core_groups: core_groups,
   core_count: core.length,
-  gemfile_html: code.call(gemfile),
-  cdkjson_html: code.call(%({\n  "app": "bundle exec ruby app.rb"\n}), 'json'),
-  stack_html: code.call(stack),
-  app_html: code.call(app),
-  deploy_html: code.call(deploy, 'console'),
   generated_on: Time.now.strftime('%a %b %d %H:%M:%S %Y')))
 
 # Stylesheets are served from the canonical /styles/ path (deployed separately),

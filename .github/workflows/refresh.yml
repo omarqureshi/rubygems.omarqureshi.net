@@ -146,6 +146,32 @@ jobs:
           aws s3 sync "$repo/info/" "s3://$BUCKET/info/" --delete --no-progress
           echo "index uploaded"
 
+      - name: Deploy the stylesheets
+        # The site's own assets, served from /styles/ and shared by every
+        # library's pages. They were previously uploaded by the CDK publisher,
+        # which was wrong for the same reason its index rebuild was — the files
+        # describe the whole site, not one library — but removing that left them
+        # with no owner at all, frozen at whatever was last pushed. This is the
+        # owner.
+        if: github.event_name != 'workflow_dispatch' || inputs.apply
+        run: |
+          changed=false
+          for css in docs-gen/*.css; do
+            name=$(basename "$css")
+            live=$(aws s3 cp "s3://$BUCKET/styles/$name" - 2>/dev/null || true)
+            if [ "$live" != "$(cat "$css")" ]; then
+              aws s3 cp "$css" "s3://$BUCKET/styles/$name" \
+                --content-type 'text/css' --cache-control 'public, max-age=300' --no-progress >/dev/null
+              echo "  updated styles/$name"
+              changed=true
+            fi
+          done
+          if [ "$changed" = "true" ]; then
+            echo "STYLES_CHANGED=true" >> "$GITHUB_ENV"
+          else
+            echo "stylesheets already current"
+          fi
+
       - name: Invalidate the caches that changed
         # Only what changed. A blanket /docs/* would throw away a warm cache for
         # thousands of immutable pages, and this also runs on a timer where the
@@ -166,6 +192,10 @@ jobs:
           paths=()
 
           # Shared, mutable, and only worth invalidating when they moved.
+          if [ "$STYLES_CHANGED" = "true" ]; then
+            paths+=('/styles/*')
+          fi
+
           if [ "$INDEX_STALE" = "true" ] || [ "$ALIASES_CHANGED" = "true" ]; then
             paths+=('/docs/*/index.html' '/docs/*/*/index.html'
                     '/specs*' '/latest_specs*' '/prerelease_specs*' '/names' '/versions'
