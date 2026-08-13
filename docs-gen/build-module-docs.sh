@@ -30,6 +30,32 @@ export RUBY_THREAD_VM_STACK_SIZE="${RUBY_THREAD_VM_STACK_SIZE:-536870912}"
 # doesn't recognise ``` fences; its GFM mode uses a different, unthemed highlighter.)
 MARKUP=(--markup markdown --markup-provider redcarpet)
 
+# Optional: another library's sources, so YARD resolves references into it
+# properly rather than leaving them as text. YARD would then link them
+# relatively, assuming one output tree; the plugin rewrites those addresses to
+# the other library's published pages, so the trees stay independent.
+#
+#   CROSSLINK_LIBS="/path/to/lib/cdk8s /path/to/lib/constructs"
+#   YARD_CROSSLINK="CDK8s=2.70.91,Constructs=10.8.1"
+#
+# The foreign pages YARD also generates are removed afterwards: they are a
+# by-product of having the sources in the registry, and publishing them would
+# put a second, unversioned copy of another library inside this tree.
+CROSSLINK=()
+if [ -n "${YARD_CROSSLINK:-}" ] && [ -n "${CROSSLINK_LIBS:-}" ]; then
+  # Absolute: yard runs from inside $GEM_LIB, so a relative path here silently
+  # resolves to nothing, yard is handed a directory that does not exist, and the
+  # build succeeds having linked precisely nothing. Fail instead.
+  for lib in ${CROSSLINK_LIBS}; do
+    case "$lib" in
+      /*) [ -d "$lib" ] || { echo "::error::CROSSLINK_LIBS: no such directory $lib"; exit 1; } ;;
+      *)  echo "::error::CROSSLINK_LIBS must be absolute paths (got '$lib'); yard runs from inside $GEM_LIB"; exit 1 ;;
+    esac
+  done
+  CROSSLINK=(-e "$SELF_DIR/yard-crosslink-plugin.rb")
+  echo "crosslinking against: $YARD_CROSSLINK"
+fi
+
 modules=("$@")
 [ ${#modules[@]} -eq 0 ] && modules=($(ls "$GEM_LIB"))
 # No `mkdir` for the root module: YARD creates the directories from the module
@@ -82,7 +108,18 @@ else
   total=$([ ${#mods[@]} -eq 0 ] && echo 0 || find "${mods[@]}" -name '*.rb' | wc -l)
   printf 'yard (unified) %s modules + %s root types, %s files -> one registry\n' \
     "${#mods[@]}" "${#rootfiles[@]}" "$((total + ${#rootfiles[@]}))"
-  yard doc ${mods[@]+"${mods[@]}"} "${rootfiles[@]}" -o "$OUT" --no-cache --no-progress -q "${MARKUP[@]}"
+  yard doc ${mods[@]+"${mods[@]}"} "${rootfiles[@]}" ${CROSSLINK_LIBS:-} \
+    -o "$OUT" --no-cache --no-progress -q "${MARKUP[@]}" ${CROSSLINK[@]+"${CROSSLINK[@]}"}
+fi
+
+# Drop the foreign trees. They were built only so YARD could resolve into them,
+# and the links point at their published homes rather than here.
+if [ -n "${YARD_CROSSLINK:-}" ]; then
+  for pair in ${YARD_CROSSLINK//,/ }; do
+    foreign="${pair%%=*}"
+    [ -d "$OUT/$foreign" ] && rm -rf "$OUT/$foreign" "$OUT/$foreign.html" \
+      && echo "  removed the by-product $foreign/ tree"
+  done
 fi
 
 # Apply the theme: YARD loads common.css last, so this overrides style.css site-wide.
