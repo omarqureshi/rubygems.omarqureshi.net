@@ -27,7 +27,7 @@
   <p class="meta"><%= total_gems %> gems, <%= total_versions %> versions total.</p>
 <% gems.each do |g| -%>
   <section class="gem" id="<%= h.(g[:name]) %>">
-    <h3><code><%= h.(g[:name]) %></code><span class="count"><%= g[:count] %> version<%= g[:count] == 1 ? '' : 's' %></span></h3>
+    <h3><code><%= h.(g[:name]) %></code><% if g[:docs] %> <a class="docs" href="<%= g[:docs] %>">docs</a><% end %><span class="count"><%= g[:count] %> version<%= g[:count] == 1 ? '' : 's' %></span></h3>
     <p class="latest">latest <a href="gems/<%= h.(g[:name]) %>-<%= h.(g[:latest]) %>.gem"><code><%= h.(g[:latest]) %></code></a><%= g[:latest_date] ? %( <span class="d">#{g[:latest_date]}</span>) : '' %></p>
     <details>
       <summary>all versions</summary>

@@ -20,9 +20,13 @@
 require 'zlib'
 require 'stringio'
 require 'rubygems'
+require_relative 'docs_links'
 require_relative 'render'
 
-repo_dir = ARGV[0] or abort('usage: gen-feed-index.rb <repo-dir>')
+repo_dir = ARGV[0] or abort('usage: gen-feed-index.rb <repo-dir> [documented-modules...]')
+# Modules with published documentation, so a gem is only linked to pages that
+# exist. The caller knows: it has just listed docs/ to work out the aliases.
+documented_modules = ARGV[1..] || []
 
 def load_specs(path)
   return [] unless File.exist?(path)
@@ -57,11 +61,16 @@ ordered = by_gem.keys.sort_by { |n| [LEAD.index(n) || LEAD.size, n] }
 
 gems = ordered.map do |name|
   versions = by_gem[name]
+  # A gem is linked to its reference only when those pages actually exist; the
+  # published modules are passed in, so a library whose docs have not shipped
+  # yet stays plain rather than linking to a 403.
+  docs_href = DocsLinks.for(name, documented_modules)
   {
     name: name,
     latest: versions.first,
     latest_date: build_date(versions.first),
     count: versions.size,
+    docs: docs_href,
     versions: versions.map { |v| { ver: v.to_s, date: build_date(v) } },
   }
 end

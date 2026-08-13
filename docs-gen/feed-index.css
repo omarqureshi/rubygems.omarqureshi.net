@@ -32,3 +32,8 @@ ul.vers li { margin: .2rem 0; break-inside: avoid; }
 ul.vers a { text-decoration: none; color: var(--accent); }
 ul.vers a code { background: var(--panel); padding: .08em .3em; border-radius: 4px; color: var(--ink); }
 ul.vers a:hover code { color: var(--accent); }
+
+/* Link from a gem to its API reference. The two are published separately and a
+   reader arriving at the feed had no way across. */
+.gem h3 a.docs { margin-left: .5rem; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); text-decoration: none; }
+.gem h3 a.docs:hover { text-decoration: underline; }
